@@ -5,6 +5,7 @@ import akka.actor.typed.scaladsl.Behaviors
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Route
 
+import scala.concurrent.duration.DurationInt
 import scala.util.Failure
 import scala.util.Success
 
@@ -14,8 +15,11 @@ object QuickstartApp {
   private def startHttpServer(routes: Route)(implicit system: ActorSystem[_]): Unit = {
     // Akka HTTP still needs a classic ActorSystem to start
     import system.executionContext
-
-    val futureBinding = Http().newServerAt("localhost", 8080).bind(routes)
+    val config = system.settings.config
+    val hostname = config.getString("pokebowl.server.hostname")
+    val port = config.getInt("pokebowl.server.port")
+    val futureBinding = Http().newServerAt(hostname, port).bind(routes)
+      .map(_.addToCoordinatedShutdown(hardTerminationDeadline = 10.seconds))
     futureBinding.onComplete {
       case Success(binding) =>
         val address = binding.localAddress
@@ -25,6 +29,7 @@ object QuickstartApp {
         system.terminate()
     }
   }
+
   //#start-http-server
   def main(args: Array[String]): Unit = {
     //#server-bootstrapping
@@ -37,7 +42,16 @@ object QuickstartApp {
 
       Behaviors.empty
     }
-    val system = ActorSystem[Nothing](rootBehavior, "HelloAkkaHttpServer")
+
+    implicit val actorSystem = ActorSystem[Nothing](rootBehavior, "PokebowlAkkaHttpServer")
+    implicit val executionContext = actorSystem.executionContext
+    val client = new JobcoinClient
+    client.getAddressInfo("me").map(addressInfo => {
+      println(addressInfo.balance)
+      addressInfo.transactions.foreach( tx => {
+        println(s"${tx.timestamp}, ${tx.amount}, ${tx.toAddress}")
+      })
+    })
     //#server-bootstrapping
   }
 }
