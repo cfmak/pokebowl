@@ -42,23 +42,28 @@ object QuickstartApp {
 
       Behaviors.empty
     }
+    //#server-bootstrapping
 
     implicit val actorSystem = ActorSystem[Nothing](rootBehavior, "PokebowlAkkaHttpServer")
     implicit val executionContext = actorSystem.executionContext
     val client = new JobcoinClient
-    client.getAddressInfo("Alice").map(addressInfo => {
-      println(addressInfo.balance)
-      addressInfo.transactions.foreach( tx => {
-        println(s"${tx.timestamp}, ${tx.amount}, ${tx.fromAddress}, ${tx.toAddress}")
-      })
-    })
+//    client.getAddressInfo("Alice").map(addressInfo => {
+//      println(addressInfo.balance)
+//      addressInfo.transactions.foreach( tx => {
+//        println(s"${tx.timestamp}, ${tx.amount}, ${tx.fromAddress}, ${tx.toAddress}")
+//      })
+//    })
+//
+//    client.listTransactions().map(transactions => {
+//      transactions.foreach( tx => {
+//        println(s"${tx.timestamp}, ${tx.amount}, ${tx.fromAddress}, ${tx.toAddress}")
+//      })
+//    })
 
-    client.listTransactions().map(transactions => {
-      transactions.foreach( tx => {
-        println(s"${tx.timestamp}, ${tx.amount}, ${tx.fromAddress}, ${tx.toAddress}")
-      })
-    })
-    //#server-bootstrapping
+    client.postTransactions("Alice", "Bob", "10.0").onComplete {
+      case Success(s) => print(s)
+      case Failure(t) => println(t)
+    }
   }
 }
 //#main-class

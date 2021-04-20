@@ -51,6 +51,28 @@ class JobcoinClient (implicit system: ActorSystem[_], ec: ExecutionContext) {
       }
     }
   }
+
+  def postTransactions(fromAddress: String, toAddress: String, amount: String): Future[Unit] = {
+    val data = String.format("{\"fromAddress\":\"%s\", \"toAddress\":\"%s\", \"amount\":\"%s\"}", fromAddress, toAddress, amount)
+    val request = HttpRequest(
+      method = HttpMethods.POST,
+      uri = apiTransactionsUrl,
+      entity = HttpEntity(ContentTypes.`application/json`, data.getBytes())
+    )
+    val responseFuture: Future[HttpResponse] = Http().singleRequest(request)
+    responseFuture.flatMap { response => parsePostTransactions(response) }
+  }
+
+  def parsePostTransactions(response: HttpResponse) : Future[Unit] = {
+    response.status match {
+      case OK if (response.entity.contentType == ContentTypes.`application/json`) =>
+        Future()
+      case UnprocessableEntity => Unmarshal(response.entity).to[JobcoinClient.ErrorResponse].flatMap { error =>
+        Future.failed(new IOException(error.error))
+      }
+      case _ => Future.failed(new IOException("Unknown error"))
+    }
+  }
 }
 
 object JobcoinClient {
@@ -61,5 +83,9 @@ object JobcoinClient {
   case class AddressInfo(balance: String, transactions: Array[Transaction])
   object AddressInfo {
     implicit val jsonReads: RootJsonFormat[AddressInfo] = jsonFormat2(AddressInfo.apply)
+  }
+  case class ErrorResponse(error: String)
+  object ErrorResponse {
+    implicit val jsonReads: RootJsonFormat[ErrorResponse] = jsonFormat1(ErrorResponse.apply)
   }
 }
