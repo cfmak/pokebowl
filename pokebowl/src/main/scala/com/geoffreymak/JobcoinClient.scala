@@ -16,6 +16,7 @@ import java.io.IOException
 class JobcoinClient (implicit system: ActorSystem[_], ec: ExecutionContext) {
   val config = system.settings.config
   private val apiAddressesUrl = config.getString("pokebowl.jobcoin.apiAddressesUrl")
+  private val apiTransactionsUrl = config.getString("pokebowl.jobcoin.apiTransactionsUrl")
 
   def getAddressInfo(addressId: String): Future[JobcoinClient.AddressInfo] = {
     val responseFuture: Future[HttpResponse] = Http().singleRequest(HttpRequest(uri = apiAddressesUrl+s"/$addressId"))
@@ -27,6 +28,23 @@ class JobcoinClient (implicit system: ActorSystem[_], ec: ExecutionContext) {
     response.status match {
       case OK if (response.entity.contentType == ContentTypes.`application/json`) =>
         Unmarshal(response.entity).to[JobcoinClient.AddressInfo]
+      case _ => Unmarshal(response.entity).to[String].flatMap { entity =>
+        val error = s"Request failed with status code ${response.status} and entity $entity"
+        Future.failed(new IOException(error))
+      }
+    }
+  }
+
+  def listTransactions(): Future[Array[JobcoinClient.Transaction]] = {
+    val responseFuture: Future[HttpResponse] = Http().singleRequest(HttpRequest(uri = apiTransactionsUrl))
+
+    responseFuture.flatMap { response => parseListTransactions(response) }
+  }
+
+  def parseListTransactions(response: HttpResponse) : Future[Array[JobcoinClient.Transaction]] = {
+    response.status match {
+      case OK if (response.entity.contentType == ContentTypes.`application/json`) =>
+        Unmarshal(response.entity).to[Array[JobcoinClient.Transaction]]
       case _ => Unmarshal(response.entity).to[String].flatMap { entity =>
         val error = s"Request failed with status code ${response.status} and entity $entity"
         Future.failed(new IOException(error))
