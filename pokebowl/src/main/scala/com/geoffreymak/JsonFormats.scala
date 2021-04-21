@@ -12,6 +12,10 @@ object JsonFormats  {
   implicit val userJsonFormat = jsonFormat3(User)
   implicit val usersJsonFormat = jsonFormat1(Users)
 
+  implicit val depositAddress = jsonFormat1(DepositAddress)
+  implicit val disbursementJsonFormat = jsonFormat2(Disbursement)
+  implicit val mixingRequestJsonFormat = jsonFormat2(MixingRequest)
+  implicit val mixingJsonFormat = jsonFormat3(Mixing)
   implicit val actionPerformedJsonFormat = jsonFormat1(ActionPerformed)
 }
 //#json-formats
