@@ -2,13 +2,14 @@ package com.geoffreymak
 
 import akka.actor.typed.{ActorRef, ActorSystem}
 import akka.actor.typed.scaladsl.AskPattern._
-import akka.http.scaladsl.model.StatusCodes
 import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server.Route
 import akka.util.Timeout
 import com.geoffreymak.MixerRegistry._
 import JsonFormats._
 import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
+import akka.http.scaladsl.model.StatusCodes._
+
 import scala.concurrent.Future
 
 class MixerRoutes(mixerRegistry: ActorRef[MixerRegistry.Command])(implicit val system: ActorSystem[_]) {
@@ -25,17 +26,25 @@ class MixerRoutes(mixerRegistry: ActorRef[MixerRegistry.Command])(implicit val s
     pathPrefix("mixer") {
       concat(
         pathEnd {
-          concat(
-            post {
-              entity(as[MixingRequest]) { mixingRequest =>
-                onSuccess(createMixing(mixingRequest)) { createMixingResponse =>
-                  createMixingResponse.maybeDepositAddress match {
-                    case Some(addr) => complete((StatusCodes.Created, addr))
-                    case _ => complete(StatusCodes.BadRequest)
-                  }
+          post {
+            entity(as[MixingRequest]) { mixingRequest =>
+              onSuccess(createMixing(mixingRequest)) { createMixingResponse =>
+                createMixingResponse.maybeDepositAddress match {
+                  case Some(addr) => complete((Created, addr))
+                  case _ => complete(BadRequest)
                 }
               }
-            })
+            }
+          }
+        },
+        pathPrefix("confirmDeposit") {
+          path(Segment) { depositAddress =>
+            post {
+              onSuccess(confirmDeposit(depositAddress)) { x =>
+                complete(x)
+              }
+            }
+          }
         }
       )
     }
