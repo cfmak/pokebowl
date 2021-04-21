@@ -12,7 +12,8 @@ final case class Mixing(depositAddress: String, depositAmount: String, disbursem
 object MixerRegistry {
   // actor protocol
   sealed trait Command
-  final case class CreateMixing(mixingRequest: MixingRequest, replyTo: ActorRef[DepositAddress]) extends Command
+  final case class CreateMixing(mixingRequest: MixingRequest, replyTo: ActorRef[CreateMixingResponse]) extends Command
+  final case class CreateMixingResponse(maybeDepositAddress: Option[DepositAddress])
 //  final case class CreateUser(user: User, replyTo: ActorRef[ActionPerformed]) extends Command
 //  final case class GetUser(name: String, replyTo: ActorRef[GetUserResponse]) extends Command
 //  final case class DeleteUser(name: String, replyTo: ActorRef[ActionPerformed]) extends Command
@@ -24,15 +25,27 @@ object MixerRegistry {
 
   def randomUUID() = java.util.UUID.randomUUID.toString
 
+  def validateMixingRequest(mixingRequest: MixingRequest): Boolean = {
+    val deposit = BigDecimal(mixingRequest.depositAmount)
+    val disbursementTotal = mixingRequest.disbursements.foldLeft(BigDecimal(0))((z, d) => z + BigDecimal(d.amount))
+    deposit == disbursementTotal
+  }
+
   // TODO: abstract mixingMap to become a MixingRepository trait,
   //  and implement a InMemoryMixingRepository and a DBMixingRepository
   private def registry(mixingMap: Map[String, Mixing]): Behavior[Command] =
     Behaviors.receiveMessage {
       case CreateMixing(mixingRequest, replyTo) =>
-        val depositAddress = randomUUID()
-        val mixing = Mixing(depositAddress, mixingRequest.depositAmount, mixingRequest.disbursements)
-        replyTo ! DepositAddress(depositAddress)
-        registry(mixingMap + (mixing.depositAddress -> mixing))
+        if (validateMixingRequest(mixingRequest)) {
+          val depositAddress = randomUUID()
+          val mixing = Mixing(depositAddress, mixingRequest.depositAmount, mixingRequest.disbursements)
+          replyTo ! CreateMixingResponse(Some(DepositAddress(depositAddress)))
+          registry(mixingMap + (mixing.depositAddress -> mixing))
+        } else {
+          replyTo ! CreateMixingResponse(None)
+          Behaviors.same
+        }
+
 //      case GetUsers(replyTo) =>
 //        replyTo ! Users(users.toSeq)
 //        Behaviors.same

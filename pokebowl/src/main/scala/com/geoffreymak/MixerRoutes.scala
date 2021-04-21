@@ -15,7 +15,7 @@ class MixerRoutes(mixerRegistry: ActorRef[MixerRegistry.Command])(implicit val s
   // If ask takes more time than this to complete the request is failed
   private implicit val timeout = Timeout.create(system.settings.config.getDuration("pokebowl.server.timeout"))
 
-  def createMixing(mixingRequest: MixingRequest): Future[DepositAddress] =
+  def createMixing(mixingRequest: MixingRequest): Future[CreateMixingResponse] =
     mixerRegistry.ask(CreateMixing(mixingRequest, _))
   def confirmDeposit(depositAddress: String): Future[String] =
     Future.successful("OK")
@@ -28,8 +28,11 @@ class MixerRoutes(mixerRegistry: ActorRef[MixerRegistry.Command])(implicit val s
           concat(
             post {
               entity(as[MixingRequest]) { mixingRequest =>
-                onSuccess(createMixing(mixingRequest)) { performed =>
-                  complete((StatusCodes.Created, performed))
+                onSuccess(createMixing(mixingRequest)) { createMixingResponse =>
+                  createMixingResponse.maybeDepositAddress match {
+                    case Some(addr) => complete((StatusCodes.Created, addr))
+                    case _ => complete(StatusCodes.BadRequest)
+                  }
                 }
               }
             })
