@@ -22,11 +22,17 @@ object MixerRegistry {
 
   def apply(): Behavior[Command] = registry(Map.empty)
 
-  private def registry(mixing: Map[String, Mixing]): Behavior[Command] =
+  def randomUUID() = java.util.UUID.randomUUID.toString
+
+  // TODO: abstract mixingMap to become a MixingRepository trait,
+  //  and implement a InMemoryMixingRepository and a DBMixingRepository
+  private def registry(mixingMap: Map[String, Mixing]): Behavior[Command] =
     Behaviors.receiveMessage {
       case CreateMixing(mixingRequest, replyTo) =>
-        replyTo ! DepositAddress("some-address")
-        Behaviors.same
+        val depositAddress = randomUUID()
+        val mixing = Mixing(depositAddress, mixingRequest.depositAmount, mixingRequest.disbursements)
+        replyTo ! DepositAddress(depositAddress)
+        registry(mixingMap + (mixing.depositAddress -> mixing))
 //      case GetUsers(replyTo) =>
 //        replyTo ! Users(users.toSeq)
 //        Behaviors.same
