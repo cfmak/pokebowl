@@ -1,15 +1,18 @@
 package com.geoffreymak
 
-import akka.actor.typed.{ActorRef, Behavior}
+import akka.actor.typed.{ActorRef, ActorSystem, Behavior}
 import akka.actor.typed.scaladsl.{ActorContext, Behaviors}
 
-import scala.concurrent.Future
+import scala.concurrent.{ExecutionContextExecutor, Future}
 import scala.util.{Failure, Success}
 import akka.util.Timeout
 
 final case class MixingRequest(depositAmount: String, disbursements: Seq[Disbursement])
+
 final case class DepositAddress(depositAddress: String)
+
 final case class Disbursement(toAddress: String, amount: String)
+
 final case class Mixing(depositAddress: String, depositAmount: String, disbursements: Seq[Disbursement])
 
 object MixerRegistry {
@@ -17,20 +20,27 @@ object MixerRegistry {
 
   // actor protocol
   sealed trait Command
+
   final case class CreateMixing(mixingRequest: MixingRequest, replyTo: ActorRef[CreateMixingResponse]) extends Command
+
   final case class ConfirmDeposit(depositAddress: String, replyTo: ActorRef[ActionPerformed]) extends Command
+
   final case class FlushDepositToHouse(mixing: Mixing) extends Command
+
   final case class FlushDepositToHouseError() extends Command
+
   final case class Disburse(mixing: Mixing) extends Command
+
   final case class DepositValueError() extends Command
 
   // responses
   final case class CreateMixingResponse(maybeDepositAddress: Option[DepositAddress])
+
   final case class ActionPerformed(description: String)
 
   def apply()(implicit actorContext: ActorContext[Command]): Behavior[Command] = registry(Map.empty)
 
-  def randomUUID() = java.util.UUID.randomUUID.toString
+  def randomUUID():String = java.util.UUID.randomUUID.toString
 
   def validateMixingRequest(mixingRequest: MixingRequest): Boolean = {
     val deposit = BigDecimal(mixingRequest.depositAmount)
@@ -39,27 +49,26 @@ object MixerRegistry {
   }
 
   def validateAmountInDepositAddress(depositAddress: String, mixingMap: Map[String, Mixing])(implicit actorContext: ActorContext[Command]): Future[Boolean] = {
-    implicit val system = actorContext.system
-    implicit val executionContext = actorContext.executionContext
+    implicit val system: ActorSystem[Nothing] = actorContext.system
+    implicit val executionContext: ExecutionContextExecutor = actorContext.executionContext
     val mixing = mixingMap.get(depositAddress)
     mixing match {
-      case Some(m) => {
-        val jobcoinClient:JobcoinClient = new JobcoinClient
+      case Some(m) =>
+        val jobcoinClient: JobcoinClient = new JobcoinClient
         jobcoinClient.getAddressInfo(depositAddress).transformWith {
-          case Success(addressInfo) => {
+          case Success(addressInfo) =>
             Future.successful(BigDecimal(addressInfo.balance) == BigDecimal(m.depositAmount))
-          }
-          case Failure(e) => Future.successful(false)
+          case Failure(_) =>
+            Future.successful(false)
         }
-      }
       case _ => Future.successful(false)
     }
   }
 
   def transact(fromAddress: String, toAddress: String, amount: String)(implicit actorContext: ActorContext[Command]): Future[Unit] = {
-    implicit val system = actorContext.system
-    implicit val executionContext = actorContext.executionContext
-    val jobcoinClient:JobcoinClient = new JobcoinClient
+    implicit val system: ActorSystem[Nothing] = actorContext.system
+    implicit val executionContext: ExecutionContextExecutor = actorContext.executionContext
+    val jobcoinClient: JobcoinClient = new JobcoinClient
     jobcoinClient.postTransactions(fromAddress, toAddress, amount)
   }
 
@@ -67,8 +76,8 @@ object MixerRegistry {
   //  and implement a InMemoryMixingRepository and a DBMixingRepository
   private def registry(mixingMap: Map[String, Mixing])(implicit context: ActorContext[Command]): Behavior[Command] = {
     val houseAddress = context.system.settings.config.getString("pokebowl.jobcoin.houseAddress")
-    implicit val timeout = Timeout.create(context.system.settings.config.getDuration("pokebowl.server.timeout"))
-    implicit val ec = context.executionContext
+    implicit val timeout: Timeout = Timeout.create(context.system.settings.config.getDuration("pokebowl.server.timeout"))
+    implicit val ec: ExecutionContextExecutor = context.executionContext
     Behaviors.receiveMessage {
       case CreateMixing(mixingRequest, replyTo) =>
         if (validateMixingRequest(mixingRequest)) {
@@ -80,40 +89,34 @@ object MixerRegistry {
           replyTo ! CreateMixingResponse(None)
           Behaviors.same
         }
-      case ConfirmDeposit(depositAddress, replyTo) => {
+      case ConfirmDeposit(depositAddress, replyTo) =>
         val validation = validateAmountInDepositAddress(depositAddress, mixingMap)
-        validation.onComplete{
-          case Success(true) => {
+        validation.onComplete {
+          case Success(true) =>
             replyTo ! ActionPerformed("Deposit address verified. Perform mixing")
             actorRef.get ! FlushDepositToHouse(mixingMap(depositAddress))
-          }
-          case _ => {
+          case _ =>
             // TODO: this should return some 4xx
             replyTo ! ActionPerformed("Failed to confirm the deposit address")
             actorRef.get ! DepositValueError()
-          }
         }
         Behaviors.same
-      }
-      case FlushDepositToHouse(mixing) => {
+      case FlushDepositToHouse(mixing) =>
         val transactionStatus = transact(mixing.depositAddress, houseAddress, mixing.depositAmount)
         transactionStatus.onComplete {
-          case Success(_) => {
+          case Success(_) =>
             actorRef.get ! Disburse(mixing)
-          }
-          case _ => {
+          case _ =>
             actorRef.get ! FlushDepositToHouseError()
-          }
         }
         Behaviors.same
-      }
-      case Disburse(mixing) => {
+      case Disburse(mixing) =>
         mixing.disbursements.foreach(disbursement => {
           transact(houseAddress, disbursement.toAddress, disbursement.amount)
         })
         registry(mixingMap.-(mixing.depositAddress))
-      }
-      case _ => Behaviors.same
+      case _ =>
+        Behaviors.same
       // TODO: handle the error cases by retry or at least log them
     }
   }

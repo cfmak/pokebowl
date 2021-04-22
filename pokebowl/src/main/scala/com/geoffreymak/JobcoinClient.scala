@@ -14,9 +14,8 @@ import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 import java.io.IOException
 
 class JobcoinClient (implicit system: ActorSystem[_], ec: ExecutionContext) {
-  val config = system.settings.config
-  private val apiAddressesUrl = config.getString("pokebowl.jobcoin.apiAddressesUrl")
-  private val apiTransactionsUrl = config.getString("pokebowl.jobcoin.apiTransactionsUrl")
+  private val apiAddressesUrl = system.settings.config.getString("pokebowl.jobcoin.apiAddressesUrl")
+  private val apiTransactionsUrl = system.settings.config.getString("pokebowl.jobcoin.apiTransactionsUrl")
 
   def getAddressInfo(addressId: String): Future[JobcoinClient.AddressInfo] = {
     val responseFuture: Future[HttpResponse] = Http().singleRequest(HttpRequest(uri = apiAddressesUrl+s"/$addressId"))
@@ -26,7 +25,7 @@ class JobcoinClient (implicit system: ActorSystem[_], ec: ExecutionContext) {
 
   def parseAddressInfo(response: HttpResponse) : Future[JobcoinClient.AddressInfo] = {
     response.status match {
-      case OK if (response.entity.contentType == ContentTypes.`application/json`) =>
+      case OK if response.entity.contentType == ContentTypes.`application/json` =>
         Unmarshal(response.entity).to[JobcoinClient.AddressInfo]
       case _ => Unmarshal(response.entity).to[String].flatMap { entity =>
         val error = s"Request failed with status code ${response.status} and entity $entity"
@@ -43,7 +42,7 @@ class JobcoinClient (implicit system: ActorSystem[_], ec: ExecutionContext) {
 
   def parseListTransactions(response: HttpResponse) : Future[Array[JobcoinClient.Transaction]] = {
     response.status match {
-      case OK if (response.entity.contentType == ContentTypes.`application/json`) =>
+      case OK if response.entity.contentType == ContentTypes.`application/json` =>
         Unmarshal(response.entity).to[Array[JobcoinClient.Transaction]]
       case _ => Unmarshal(response.entity).to[String].flatMap { entity =>
         val error = s"Request failed with status code ${response.status} and entity $entity"
@@ -65,7 +64,7 @@ class JobcoinClient (implicit system: ActorSystem[_], ec: ExecutionContext) {
 
   def parsePostTransactions(response: HttpResponse) : Future[Unit] = {
     response.status match {
-      case OK if (response.entity.contentType == ContentTypes.`application/json`) =>
+      case OK if response.entity.contentType == ContentTypes.`application/json` =>
         Future()
       case UnprocessableEntity => Unmarshal(response.entity).to[JobcoinClient.ErrorResponse].flatMap { error =>
         Future.failed(new IOException(error.error))
