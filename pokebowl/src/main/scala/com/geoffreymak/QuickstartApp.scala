@@ -33,8 +33,9 @@ object QuickstartApp {
   //#start-http-server
   def main(args: Array[String]): Unit = {
     //#server-bootstrapping
-    val rootBehavior = Behaviors.setup[Nothing] { context =>
-      val mixerRegistryActor = context.spawn(MixerRegistry(), "UserRegistryActor")
+    val rootBehavior = Behaviors.setup[MixerRegistry.Command] { context =>
+      val clientActorSystem = ActorSystem[Nothing](Behaviors.empty, "JobcoinClientActorSystem")
+      val mixerRegistryActor = context.spawn(MixerRegistry()(clientActorSystem, context, clientActorSystem.executionContext), "MixerRegistryActor")
       context.watch(mixerRegistryActor)
 
       val mixerRoutes = new MixerRoutes(mixerRegistryActor)(context.system)
@@ -42,7 +43,7 @@ object QuickstartApp {
 
       Behaviors.empty
     }
-    implicit val actorSystem = ActorSystem[Nothing](rootBehavior, "PokebowlAkkaHttpServer")
+    implicit val actorSystem = ActorSystem[MixerRegistry.Command](rootBehavior, "PokebowlAkkaHttpServer")
     //#server-bootstrapping
   }
 }

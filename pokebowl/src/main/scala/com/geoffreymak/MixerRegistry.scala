@@ -1,8 +1,10 @@
 package com.geoffreymak
 
-import akka.actor.typed.ActorRef
-import akka.actor.typed.Behavior
-import akka.actor.typed.scaladsl.Behaviors
+import akka.actor.typed.{ActorRef, ActorSystem, Behavior}
+import akka.actor.typed.scaladsl.{ActorContext, Behaviors}
+
+import scala.concurrent.{ExecutionContext, Future}
+import scala.util.{Failure, Success}
 
 final case class MixingRequest(depositAmount: String, disbursements: Seq[Disbursement])
 final case class DepositAddress(depositAddress: String)
@@ -13,15 +15,13 @@ object MixerRegistry {
   // actor protocol
   sealed trait Command
   final case class CreateMixing(mixingRequest: MixingRequest, replyTo: ActorRef[CreateMixingResponse]) extends Command
+  final case class PerformMixing(depositAddress: String, replyTo: ActorRef[ActionPerformed]) extends Command
+  final case class Disburse(depositAddress: String) extends Command
+  final case class DepositValueError() extends Command
   final case class CreateMixingResponse(maybeDepositAddress: Option[DepositAddress])
-//  final case class CreateUser(user: User, replyTo: ActorRef[ActionPerformed]) extends Command
-//  final case class GetUser(name: String, replyTo: ActorRef[GetUserResponse]) extends Command
-//  final case class DeleteUser(name: String, replyTo: ActorRef[ActionPerformed]) extends Command
-
-  final case class GetUserResponse(maybeUser: Option[User])
   final case class ActionPerformed(description: String)
 
-  def apply(): Behavior[Command] = registry(Map.empty)
+  def apply()(implicit system: ActorSystem[_], actorContext: ActorContext[Command], ec: ExecutionContext): Behavior[Command] = registry(Map.empty)
 
   def randomUUID() = java.util.UUID.randomUUID.toString
 
@@ -31,9 +31,26 @@ object MixerRegistry {
     deposit == disbursementTotal
   }
 
+  def validateAmountInDepositAddress(depositAddress: String, mixingMap: Map[String, Mixing])(implicit system: ActorSystem[_], ec: ExecutionContext): Future[Boolean] = {
+    val mixing = mixingMap.get(depositAddress)
+    mixing match {
+      case Some(m) => {
+        val jobcoinClient:JobcoinClient = new JobcoinClient
+        jobcoinClient.getAddressInfo(depositAddress).transformWith {
+          case Success(addressInfo) => {
+            Future.successful(BigDecimal(addressInfo.balance) == BigDecimal(m.depositAmount))
+          }
+          case Failure(e) => Future.successful(false)
+        }
+      }
+      case _ => Future.successful(false)
+    }
+
+  }
+
   // TODO: abstract mixingMap to become a MixingRepository trait,
   //  and implement a InMemoryMixingRepository and a DBMixingRepository
-  private def registry(mixingMap: Map[String, Mixing]): Behavior[Command] =
+  private def registry(mixingMap: Map[String, Mixing])(implicit system: ActorSystem[_], context: ActorContext[MixerRegistry.Command], ec: ExecutionContext): Behavior[Command] =
     Behaviors.receiveMessage {
       case CreateMixing(mixingRequest, replyTo) =>
         if (validateMixingRequest(mixingRequest)) {
@@ -45,19 +62,24 @@ object MixerRegistry {
           replyTo ! CreateMixingResponse(None)
           Behaviors.same
         }
-
-//      case GetUsers(replyTo) =>
-//        replyTo ! Users(users.toSeq)
-//        Behaviors.same
-//      case CreateUser(user, replyTo) =>
-//        replyTo ! ActionPerformed(s"User ${user.name} created.")
-//        registry(users + user)
-//      case GetUser(name, replyTo) =>
-//        replyTo ! GetUserResponse(users.find(_.name == name))
-//        Behaviors.same
-//      case DeleteUser(name, replyTo) =>
-//        replyTo ! ActionPerformed(s"User $name deleted.")
-//        registry(users.filterNot(_.name == name))
+      case PerformMixing(depositAddress, replyTo) => {
+        val validation = validateAmountInDepositAddress(depositAddress, mixingMap)
+        context.pipeToSelf(validation) {
+          case Success(true) => {
+            replyTo ! ActionPerformed("Deposit address verified. Perform mixing")
+            Disburse(depositAddress)
+          }
+          case _ => {
+            replyTo ! ActionPerformed("Deposit address value error") // TODO: this should return some 4xx
+            DepositValueError()
+          }
+        }
+        Behaviors.same
+      }
+      case Disburse(depositAddress) => {
+        Behaviors.same
+      }
+      case _ => Behaviors.same
     }
 }
 //#user-registry-actor

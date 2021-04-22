@@ -4,11 +4,15 @@ import akka.actor.typed.{ActorRef, ActorSystem}
 import akka.actor.typed.scaladsl.AskPattern._
 import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server.Route
-import akka.util.Timeout
 import com.geoffreymak.MixerRegistry._
 import JsonFormats._
 import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
 import akka.http.scaladsl.model.StatusCodes._
+
+import akka.actor.typed.ActorRef
+import akka.actor.typed.ActorSystem
+import akka.actor.typed.scaladsl.AskPattern._
+import akka.util.Timeout
 
 import scala.concurrent.Future
 
@@ -18,9 +22,8 @@ class MixerRoutes(mixerRegistry: ActorRef[MixerRegistry.Command])(implicit val s
 
   def createMixing(mixingRequest: MixingRequest): Future[CreateMixingResponse] =
     mixerRegistry.ask(CreateMixing(mixingRequest, _))
-  def confirmDeposit(depositAddress: String): Future[String] =
-    Future.successful("OK")
-//    mixerRegistry.ask(GetUser(name, _))
+  def performMixing(depositAddress: String): Future[ActionPerformed] =
+    mixerRegistry.ask(PerformMixing(depositAddress, _))
 
   val routes: Route =
     pathPrefix("mixer") {
@@ -40,8 +43,8 @@ class MixerRoutes(mixerRegistry: ActorRef[MixerRegistry.Command])(implicit val s
         pathPrefix("confirmDeposit") {
           path(Segment) { depositAddress =>
             post {
-              onSuccess(confirmDeposit(depositAddress)) { x =>
-                complete(x)
+              onSuccess(performMixing(depositAddress)) { performed =>
+                complete((Accepted, performed))
               }
             }
           }
