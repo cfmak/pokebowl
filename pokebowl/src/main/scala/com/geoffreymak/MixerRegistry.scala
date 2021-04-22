@@ -3,7 +3,7 @@ package com.geoffreymak
 import akka.actor.typed.{ActorRef, ActorSystem, Behavior}
 import akka.actor.typed.scaladsl.{ActorContext, Behaviors}
 
-import scala.concurrent.{ExecutionContextExecutor, Future}
+import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, Future}
 import scala.util.{Failure, Success}
 import akka.util.Timeout
 
@@ -38,7 +38,7 @@ object MixerRegistry {
 
   final case class ActionPerformed(description: String)
 
-  def apply()(implicit actorContext: ActorContext[Command]): Behavior[Command] = registry(Map.empty)
+  def apply()(implicit system: ActorSystem[Nothing], executionContext: ExecutionContext): Behavior[Command] = registry(Map.empty)
 
   def randomUUID():String = java.util.UUID.randomUUID.toString
 
@@ -48,9 +48,7 @@ object MixerRegistry {
     deposit > 0 && deposit == disbursementTotal
   }
 
-  def validateAmountInDepositAddress(depositAddress: String, mixingMap: Map[String, Mixing])(implicit actorContext: ActorContext[Command]): Future[Boolean] = {
-    implicit val system: ActorSystem[Nothing] = actorContext.system
-    implicit val executionContext: ExecutionContextExecutor = actorContext.executionContext
+  def validateAmountInDepositAddress(depositAddress: String, mixingMap: Map[String, Mixing])(implicit system: ActorSystem[Nothing], executionContext: ExecutionContext): Future[Boolean] = {
     val mixing = mixingMap.get(depositAddress)
     mixing match {
       case Some(m) =>
@@ -65,19 +63,16 @@ object MixerRegistry {
     }
   }
 
-  def transact(fromAddress: String, toAddress: String, amount: String)(implicit actorContext: ActorContext[Command]): Future[Unit] = {
-    implicit val system: ActorSystem[Nothing] = actorContext.system
-    implicit val executionContext: ExecutionContextExecutor = actorContext.executionContext
+  def transact(fromAddress: String, toAddress: String, amount: String)(implicit system: ActorSystem[Nothing], executionContext: ExecutionContext): Future[Unit] = {
     val jobcoinClient: JobcoinClient = new JobcoinClient
     jobcoinClient.postTransactions(fromAddress, toAddress, amount)
   }
 
   // TODO: abstract mixingMap to become a MixingRepository trait,
   //  and implement a InMemoryMixingRepository and a DBMixingRepository
-  private def registry(mixingMap: Map[String, Mixing])(implicit context: ActorContext[Command]): Behavior[Command] = {
-    val houseAddress = context.system.settings.config.getString("pokebowl.jobcoin.houseAddress")
-    implicit val timeout: Timeout = Timeout.create(context.system.settings.config.getDuration("pokebowl.server.timeout"))
-    implicit val ec: ExecutionContextExecutor = context.executionContext
+  private def registry(mixingMap: Map[String, Mixing])(implicit system: ActorSystem[Nothing], executionContext: ExecutionContext): Behavior[Command] = {
+    val houseAddress = system.settings.config.getString("pokebowl.jobcoin.houseAddress")
+    implicit val timeout: Timeout = Timeout.create(system.settings.config.getDuration("pokebowl.server.timeout"))
     Behaviors.receiveMessage {
       case CreateMixing(mixingRequest, replyTo) =>
         if (validateMixingRequest(mixingRequest)) {
