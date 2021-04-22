@@ -28,7 +28,7 @@ object MixerRegistry {
   def validateMixingRequest(mixingRequest: MixingRequest): Boolean = {
     val deposit = BigDecimal(mixingRequest.depositAmount)
     val disbursementTotal = mixingRequest.disbursements.foldLeft(BigDecimal(0))((z, d) => z + BigDecimal(d.amount))
-    deposit == disbursementTotal
+    deposit > 0 && deposit == disbursementTotal
   }
 
   def validateAmountInDepositAddress(depositAddress: String, mixingMap: Map[String, Mixing])(implicit system: ActorSystem[_], ec: ExecutionContext): Future[Boolean] = {
@@ -82,4 +82,3 @@ object MixerRegistry {
       case _ => Behaviors.same
     }
 }
-//#user-registry-actor
