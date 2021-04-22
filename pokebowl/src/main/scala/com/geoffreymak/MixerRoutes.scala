@@ -23,7 +23,7 @@ class MixerRoutes(mixerRegistry: ActorRef[MixerRegistry.Command])(implicit val s
   def createMixing(mixingRequest: MixingRequest): Future[CreateMixingResponse] =
     mixerRegistry.ask(CreateMixing(mixingRequest, _))
   def performMixing(depositAddress: String): Future[ActionPerformed] =
-    mixerRegistry.ask(PerformMixing(depositAddress, _))
+    mixerRegistry.ask(ConfirmDeposit(depositAddress, _))
 
   val routes: Route =
     pathPrefix("mixer") {
