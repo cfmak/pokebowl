@@ -98,7 +98,7 @@ object MixerRegistry {
         mixing.disbursements.foreach(disbursement => {
           transact(houseAddress, disbursement.toAddress, disbursement.amount)
         })
-        Behaviors.same
+        registry(mixingMap.-(mixing.depositAddress))
       }
       case _ => Behaviors.same
       // TODO: handle the error cases by retry or at least log them
