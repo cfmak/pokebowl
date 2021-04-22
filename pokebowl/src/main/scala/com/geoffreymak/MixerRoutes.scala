@@ -1,7 +1,5 @@
 package com.geoffreymak
 
-import akka.actor.typed.{ActorRef, ActorSystem}
-import akka.actor.typed.scaladsl.AskPattern._
 import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server.Route
 import com.geoffreymak.MixerRegistry._

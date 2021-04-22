@@ -1,10 +1,11 @@
 package com.geoffreymak
 
-import akka.actor.typed.{ActorRef, ActorSystem, Behavior}
+import akka.actor.typed.{ActorRef, Behavior}
 import akka.actor.typed.scaladsl.{ActorContext, Behaviors}
 
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.Future
 import scala.util.{Failure, Success}
+import akka.util.Timeout
 
 final case class MixingRequest(depositAmount: String, disbursements: Seq[Disbursement])
 final case class DepositAddress(depositAddress: String)
@@ -12,6 +13,8 @@ final case class Disbursement(toAddress: String, amount: String)
 final case class Mixing(depositAddress: String, depositAmount: String, disbursements: Seq[Disbursement])
 
 object MixerRegistry {
+  var actorRef: Option[ActorRef[Command]] = None
+
   // actor protocol
   sealed trait Command
   final case class CreateMixing(mixingRequest: MixingRequest, replyTo: ActorRef[CreateMixingResponse]) extends Command
@@ -25,7 +28,7 @@ object MixerRegistry {
   final case class CreateMixingResponse(maybeDepositAddress: Option[DepositAddress])
   final case class ActionPerformed(description: String)
 
-  def apply()(implicit system: ActorSystem[_], actorContext: ActorContext[Command], ec: ExecutionContext): Behavior[Command] = registry(Map.empty)
+  def apply()(implicit actorContext: ActorContext[Command]): Behavior[Command] = registry(Map.empty)
 
   def randomUUID() = java.util.UUID.randomUUID.toString
 
@@ -35,7 +38,9 @@ object MixerRegistry {
     deposit > 0 && deposit == disbursementTotal
   }
 
-  def validateAmountInDepositAddress(depositAddress: String, mixingMap: Map[String, Mixing])(implicit system: ActorSystem[_], ec: ExecutionContext): Future[Boolean] = {
+  def validateAmountInDepositAddress(depositAddress: String, mixingMap: Map[String, Mixing])(implicit actorContext: ActorContext[Command]): Future[Boolean] = {
+    implicit val system = actorContext.system
+    implicit val executionContext = actorContext.executionContext
     val mixing = mixingMap.get(depositAddress)
     mixing match {
       case Some(m) => {
@@ -51,15 +56,19 @@ object MixerRegistry {
     }
   }
 
-  def transact(fromAddress: String, toAddress: String, amount: String)(implicit system: ActorSystem[_], ec: ExecutionContext): Future[Unit] = {
+  def transact(fromAddress: String, toAddress: String, amount: String)(implicit actorContext: ActorContext[Command]): Future[Unit] = {
+    implicit val system = actorContext.system
+    implicit val executionContext = actorContext.executionContext
     val jobcoinClient:JobcoinClient = new JobcoinClient
     jobcoinClient.postTransactions(fromAddress, toAddress, amount)
   }
 
   // TODO: abstract mixingMap to become a MixingRepository trait,
   //  and implement a InMemoryMixingRepository and a DBMixingRepository
-  private def registry(mixingMap: Map[String, Mixing])(implicit system: ActorSystem[_], context: ActorContext[MixerRegistry.Command], ec: ExecutionContext): Behavior[Command] = {
-    val houseAddress = system.settings.config.getString("pokebowl.jobcoin.houseAddress")
+  private def registry(mixingMap: Map[String, Mixing])(implicit context: ActorContext[Command]): Behavior[Command] = {
+    val houseAddress = context.system.settings.config.getString("pokebowl.jobcoin.houseAddress")
+    implicit val timeout = Timeout.create(context.system.settings.config.getDuration("pokebowl.server.timeout"))
+    implicit val ec = context.executionContext
     Behaviors.receiveMessage {
       case CreateMixing(mixingRequest, replyTo) =>
         if (validateMixingRequest(mixingRequest)) {
@@ -73,24 +82,28 @@ object MixerRegistry {
         }
       case ConfirmDeposit(depositAddress, replyTo) => {
         val validation = validateAmountInDepositAddress(depositAddress, mixingMap)
-        context.pipeToSelf(validation) {
+        validation.onComplete{
           case Success(true) => {
             replyTo ! ActionPerformed("Deposit address verified. Perform mixing")
-            FlushDepositToHouse(mixingMap(depositAddress))
+            actorRef.get ! FlushDepositToHouse(mixingMap(depositAddress))
           }
           case _ => {
             // TODO: this should return some 4xx
             replyTo ! ActionPerformed("Failed to confirm the deposit address")
-            DepositValueError()
+            actorRef.get ! DepositValueError()
           }
         }
         Behaviors.same
       }
       case FlushDepositToHouse(mixing) => {
         val transactionStatus = transact(mixing.depositAddress, houseAddress, mixing.depositAmount)
-        context.pipeToSelf(transactionStatus) {
-          case Success(_) => Disburse(mixing)
-          case _ => FlushDepositToHouseError()
+        transactionStatus.onComplete {
+          case Success(_) => {
+            actorRef.get ! Disburse(mixing)
+          }
+          case _ => {
+            actorRef.get ! FlushDepositToHouseError()
+          }
         }
         Behaviors.same
       }

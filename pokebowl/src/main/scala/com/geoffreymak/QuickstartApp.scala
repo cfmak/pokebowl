@@ -34,8 +34,8 @@ object QuickstartApp {
   def main(args: Array[String]): Unit = {
     //#server-bootstrapping
     val rootBehavior = Behaviors.setup[MixerRegistry.Command] { context =>
-      val clientActorSystem = ActorSystem[Nothing](Behaviors.empty, "JobcoinClientActorSystem")
-      val mixerRegistryActor = context.spawn(MixerRegistry()(clientActorSystem, context, clientActorSystem.executionContext), "MixerRegistryActor")
+      val mixerRegistryActor = context.spawn(MixerRegistry()(context), "MixerRegistryActor")
+      MixerRegistry.actorRef = Some(mixerRegistryActor)
       context.watch(mixerRegistryActor)
 
       val mixerRoutes = new MixerRoutes(mixerRegistryActor)(context.system)
