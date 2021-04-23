@@ -1,0 +1,154 @@
+{
+	"info": {
+		"_postman_id": "5f9c8f92-e59f-401c-acfa-674e5455ccf7",
+		"name": "jobcoin",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Get address info",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://jobcoin.gemini.com/lent-doornail/api/addresses/:address",
+					"protocol": "http",
+					"host": [
+						"jobcoin",
+						"gemini",
+						"com"
+					],
+					"path": [
+						"lent-doornail",
+						"api",
+						"addresses",
+						":address"
+					],
+					"variable": [
+						{
+							"key": "address",
+							"value": "Alice"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "list transactions",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://jobcoin.gemini.com/lent-doornail/api/transactions",
+					"protocol": "http",
+					"host": [
+						"jobcoin",
+						"gemini",
+						"com"
+					],
+					"path": [
+						"lent-doornail",
+						"api",
+						"transactions"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "create mixing",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"depositAmount\":\"0.3\", \n    \"disbursements\": [\n        {\"toAddress\": \"Alice\", \"amount\": \"0.1\"},\n        {\"toAddress\": \"Bob\", \"amount\": \"0.2\"}\n    ]\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "localhost:8082/mixer",
+					"host": [
+						"localhost"
+					],
+					"port": "8082",
+					"path": [
+						"mixer"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "post transaction",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\"fromAddress\":\"Cat\", \"toAddress\":\"5b8779b7-8743-4970-984f-e635aeb1d975\", \"amount\":\"0.3\"}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://jobcoin.gemini.com/lent-doornail/api/transactions",
+					"protocol": "http",
+					"host": [
+						"jobcoin",
+						"gemini",
+						"com"
+					],
+					"path": [
+						"lent-doornail",
+						"api",
+						"transactions"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "confirmDeposit",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "localhost:8082/mixer/confirmDeposit/:depositAddress",
+					"host": [
+						"localhost"
+					],
+					"port": "8082",
+					"path": [
+						"mixer",
+						"confirmDeposit",
+						":depositAddress"
+					],
+					"variable": [
+						{
+							"key": "depositAddress",
+							"value": "5b8779b7-8743-4970-984f-e635aeb1d975"
+						}
+					]
+				}
+			},
+			"response": []
+		}
+	],
+	"protocolProfileBehavior": {}
+}
