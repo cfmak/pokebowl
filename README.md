@@ -149,3 +149,11 @@ There are several drawbacks which should be improved before going "live":
 
 3.  Better error case handling is needed for the actor state machine. Perhaps adding re-try and confirmation
     by looking up the Jobcoin transaction has happened.
+
+4.  In a real world system, multiple containers would run the server application. We would need a way to 
+    process the mixingMap element by element, exactly one time. Here are some proposals: 
+    1.  We can have a lock table in the database. The container that is processing a row of mixingMap should acquire a lock first. 
+        The lock would be released after the disbursement. As a result, only one container (or thread) can lock on and process a mixing row at a time.
+    2.  We can use kafka to manage the disbursement. The REST server can be a producer of the disbursement signal, and have other containers 
+        registered as consumer of the Disburse signal. Only the disbursement consumer will perform the transaction to disburse.
+        Kafka should support [exactly-once](https://www.baeldung.com/kafka-exactly-once) semantics very well.
