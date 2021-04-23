@@ -42,7 +42,10 @@ class MixerRoutes(mixerRegistry: ActorRef[MixerRegistry.Command])(implicit val s
           path(Segment) { depositAddress =>
             post {
               onSuccess(performMixing(depositAddress)) { performed =>
-                complete((Accepted, performed))
+                performed.description match {
+                  case "Failed to verify the deposit address" => complete((BadRequest, performed))
+                  case _ => complete((Accepted, performed))
+                }
               }
             }
           }

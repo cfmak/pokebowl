@@ -30,7 +30,6 @@ class MixerRoutesSpec extends AnyWordSpec with Matchers with ScalaFutures with S
   import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport._
   //#set-up
 
-  //#actual-test
   "MixerRoutes" should {
     "return deposit address (POST /mixer)" in {
       // note that there's no need for the host part in the uri:
@@ -60,7 +59,17 @@ class MixerRoutesSpec extends AnyWordSpec with Matchers with ScalaFutures with S
         entityAs[DepositAddress]
       }
     }
-    //#actual-test
+
+    "return error at (POST /mixer/confirmDeposit)" in {
+      val request = HttpRequest(
+        method = HttpMethods.POST,
+        uri = "/mixer/confirmDeposit/randomAddress"
+      )
+
+      request ~> routes ~> check {
+        status should ===(StatusCodes.BadRequest)
+      }
+    }
   }
   //#actual-test
 

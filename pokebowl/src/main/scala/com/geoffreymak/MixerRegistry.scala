@@ -1,9 +1,9 @@
 package com.geoffreymak
 
 import akka.actor.typed.{ActorRef, ActorSystem, Behavior}
-import akka.actor.typed.scaladsl.{ActorContext, Behaviors}
+import akka.actor.typed.scaladsl.Behaviors
 
-import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, Future}
+import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success}
 import akka.util.Timeout
 
@@ -88,11 +88,10 @@ object MixerRegistry {
         val validation = validateAmountInDepositAddress(depositAddress, mixingMap)
         validation.onComplete {
           case Success(true) =>
-            replyTo ! ActionPerformed("Deposit address verified. Perform mixing")
+            replyTo ! ActionPerformed("Deposit address verified. Start mixing...")
             actorRef.get ! FlushDepositToHouse(mixingMap(depositAddress))
           case _ =>
-            // TODO: this should return some 4xx
-            replyTo ! ActionPerformed("Failed to confirm the deposit address")
+            replyTo ! ActionPerformed("Failed to verify the deposit address")
             actorRef.get ! DepositValueError()
         }
         Behaviors.same
