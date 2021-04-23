@@ -2,6 +2,8 @@ package com.geoffreymak
 
 import akka.actor.typed.{ActorRef, ActorSystem, Behavior}
 import akka.actor.typed.scaladsl.Behaviors
+import akka.http.scaladsl.model.StatusCode
+import akka.http.scaladsl.model.StatusCodes.{Accepted, BadRequest, Created}
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success}
@@ -34,9 +36,9 @@ object MixerRegistry {
   final case class DepositValueError() extends Command
 
   // responses
-  final case class CreateMixingResponse(maybeDepositAddress: Option[DepositAddress])
+  final case class CreateMixingResponse(maybeDepositAddress: Option[DepositAddress], statusCode: Int)
 
-  final case class ActionPerformed(description: String)
+  final case class ActionPerformed(description: String, statusCode: Int)
 
   def apply()(implicit system: ActorSystem[Nothing], executionContext: ExecutionContext): Behavior[Command] = registry(Map.empty)
 
@@ -78,20 +80,20 @@ object MixerRegistry {
         if (validateMixingRequest(mixingRequest)) {
           val depositAddress = randomUUID()
           val mixing = Mixing(depositAddress, mixingRequest.depositAmount, mixingRequest.disbursements)
-          replyTo ! CreateMixingResponse(Some(DepositAddress(depositAddress)))
+          replyTo ! CreateMixingResponse(Some(DepositAddress(depositAddress)), Created.intValue)
           registry(mixingMap + (mixing.depositAddress -> mixing))
         } else {
-          replyTo ! CreateMixingResponse(None)
+          replyTo ! CreateMixingResponse(None, BadRequest.intValue)
           Behaviors.same
         }
       case ConfirmDeposit(depositAddress, replyTo) =>
         val validation = validateAmountInDepositAddress(depositAddress, mixingMap)
         validation.onComplete {
           case Success(true) =>
-            replyTo ! ActionPerformed("Deposit address verified. Start mixing...")
+            replyTo ! ActionPerformed("Deposit address verified. Start mixing...", Accepted.intValue)
             actorRef.get ! FlushDepositToHouse(mixingMap(depositAddress))
           case _ =>
-            replyTo ! ActionPerformed("Failed to verify the deposit address")
+            replyTo ! ActionPerformed("Failed to verify the deposit address", BadRequest.intValue)
             actorRef.get ! DepositValueError()
         }
         Behaviors.same

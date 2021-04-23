@@ -13,6 +13,6 @@ object JsonFormats  {
   implicit val disbursementJsonFormat = jsonFormat2(Disbursement)
   implicit val mixingRequestJsonFormat = jsonFormat2(MixingRequest)
   implicit val mixingJsonFormat = jsonFormat3(Mixing)
-  implicit val mixerActionPerformedJsonFormat = jsonFormat1(MixerRegistry.ActionPerformed)
+  implicit val mixerActionPerformedJsonFormat = jsonFormat2(MixerRegistry.ActionPerformed)
 }
 //#json-formats

@@ -15,8 +15,7 @@ import akka.util.Timeout
 import scala.concurrent.Future
 
 class MixerRoutes(mixerRegistry: ActorRef[MixerRegistry.Command])(implicit val system: ActorSystem[_]) {
-  // If ask takes more time than this to complete the request is failed
-  private implicit val timeout = Timeout.create(system.settings.config.getDuration("pokebowl.server.timeout"))
+  private implicit val timeout: Timeout = Timeout.create(system.settings.config.getDuration("pokebowl.server.timeout"))
 
   def createMixing(mixingRequest: MixingRequest): Future[CreateMixingResponse] =
     mixerRegistry.ask(CreateMixing(mixingRequest, _))
@@ -30,8 +29,8 @@ class MixerRoutes(mixerRegistry: ActorRef[MixerRegistry.Command])(implicit val s
           post {
             entity(as[MixingRequest]) { mixingRequest =>
               onSuccess(createMixing(mixingRequest)) { createMixingResponse =>
-                createMixingResponse.maybeDepositAddress match {
-                  case Some(addr) => complete((Created, addr))
+                createMixingResponse.statusCode match {
+                  case Created.intValue => complete((createMixingResponse.statusCode, createMixingResponse.maybeDepositAddress.get))
                   case _ => complete(BadRequest)
                 }
               }
@@ -42,10 +41,7 @@ class MixerRoutes(mixerRegistry: ActorRef[MixerRegistry.Command])(implicit val s
           path(Segment) { depositAddress =>
             post {
               onSuccess(performMixing(depositAddress)) { performed =>
-                performed.description match {
-                  case "Failed to verify the deposit address" => complete((BadRequest, performed))
-                  case _ => complete((Accepted, performed))
-                }
+                complete((performed.statusCode, performed))
               }
             }
           }
