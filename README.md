@@ -134,3 +134,18 @@ A Postman collection of the Mixer API and the Jobcoin API are attached in the pr
     
     * The "Alice" and "Bob" addresses should see increments of 0.1 and 0.2 respectively.
 
+# Discussion
+This project was written with great effort but has not reached production level quality.
+I have been given the project for a week, and I do not want to delay submitting the project any longer.
+
+There are several drawbacks which should be improved before going "live":
+
+1.  The mixingMap (key=deposit address, value=mixing info) is held in memory.
+    If the server goes down, the mixingMap is lost, and we lose track of the unprocessed money.
+    We should use a database like postgres to hold the mixingMap so that we can preserve the mixing info.
+
+2.  A delay should be introduced to the disbursement so that it becomes very difficult to
+    attack the mixing by matching the disbursement time with the deposit time.
+
+3.  Better error case handling is needed for the actor state machine. Perhaps adding re-try and confirmation
+    by looking up the Jobcoin transaction has happened.
