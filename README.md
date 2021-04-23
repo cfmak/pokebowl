@@ -40,7 +40,7 @@ Example:
 }
 ```
 
-###Response:  
+### Response:  
 Statuses:  
 201 (Created)  
 400 (Bad request)
@@ -65,7 +65,7 @@ then the mixer will start the mixing and disbursement process.
 ### Body: 
 empty
 
-###Response:
+### Response:
 Statuses:  
 202 (Accepted): deposit is verified, and mixing will start asynchronously.  
 400 (Bad request): if deposit address is not recognized, or does not contain the right amount of deposit
