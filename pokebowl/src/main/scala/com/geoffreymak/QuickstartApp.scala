@@ -4,6 +4,7 @@ import akka.actor.typed.ActorSystem
 import akka.actor.typed.scaladsl.Behaviors
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Route
+import com.geoffreymak.MixerRegistry.Disburse
 
 import scala.concurrent.duration.DurationInt
 import scala.util.Failure
@@ -40,6 +41,10 @@ object QuickstartApp {
 
       val mixerRoutes = new MixerRoutes(mixerRegistryActor)(context.system)
       startHttpServer(mixerRoutes.routes)(context.system)
+
+      context.system.scheduler.scheduleAtFixedRate(5.seconds, 5.seconds) {
+        () => mixerRegistryActor ! Disburse()
+      }(context.executionContext)
 
       Behaviors.empty
     }

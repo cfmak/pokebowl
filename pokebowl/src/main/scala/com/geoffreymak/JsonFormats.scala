@@ -10,7 +10,8 @@ object JsonFormats  {
   import DefaultJsonProtocol._
 
   implicit val depositAddress = jsonFormat1(DepositAddress)
-  implicit val disbursementJsonFormat = jsonFormat2(Disbursement)
+  implicit val disbursementRequestJsonFormat = jsonFormat2(DisbursementRequest)
+  implicit val disbursementJsonFormat = jsonFormat4(Disbursement)
   implicit val mixingRequestJsonFormat = jsonFormat2(MixingRequest)
   implicit val mixingJsonFormat = jsonFormat3(Mixing)
   implicit val mixerActionPerformedJsonFormat = jsonFormat2(MixerRegistry.ActionPerformed)

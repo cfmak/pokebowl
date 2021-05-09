@@ -8,11 +8,12 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success}
 import akka.util.Timeout
 
-final case class MixingRequest(depositAmount: String, disbursements: Seq[Disbursement])
+final case class MixingRequest(depositAmount: String, disbursements: Seq[DisbursementRequest])
+final case class DisbursementRequest(toAddress: String, amount: String)
 
 final case class DepositAddress(depositAddress: String)
 
-final case class Disbursement(toAddress: String, amount: String)
+final case class Disbursement(depositAddress: String, toAddress: String, amount: String, delayCount: Int)
 
 final case class Mixing(depositAddress: String, depositAmount: String, disbursements: Seq[Disbursement])
 
@@ -32,7 +33,7 @@ object MixerRegistry {
 
   final case class MixedAtHouseAddress(mixing: Mixing) extends Command
 
-  final case class Disburse(mixing: Mixing) extends Command
+  final case class Disburse() extends Command
 
   final case class DepositValueError() extends Command
 
@@ -41,7 +42,7 @@ object MixerRegistry {
 
   final case class ActionPerformed(description: String, statusCode: Int)
 
-  def apply()(implicit system: ActorSystem[Nothing], executionContext: ExecutionContext): Behavior[Command] = registry(Map.empty, Map.empty)
+  def apply()(implicit system: ActorSystem[Nothing], executionContext: ExecutionContext): Behavior[Command] = registry(Map.empty, Map.empty, Seq.empty)
 
   def randomUUID():String = java.util.UUID.randomUUID.toString
 
@@ -74,13 +75,17 @@ object MixerRegistry {
   private val logOf2 = scala.math.log(2)
   private def log2(x: Double): Double = scala.math.log(x)/logOf2
 
-  def entropy(mixingMap: Map[String, Mixing]) : Double = {
-    val depositTotal = mixingMap.values.foldLeft(BigDecimal(0))((z, d) => z + BigDecimal(d.depositAmount))
-    // entropy = - sum_for_all_i(P[i] * log(P[i]))
-    - mixingMap.values.foldLeft(BigDecimal(0))((z, d) => {
-      val prob_d = BigDecimal(d.depositAmount) / depositTotal
-      z + prob_d * log2(prob_d.doubleValue) // casting to double here is fine. prob_d -> 0 or -> 1 contributes 0 to total entropy
-    })
+  def entropy(mixingMap: Map[String, BigDecimal]) : Double = {
+    val depositTotal = mixingMap.values.foldLeft(BigDecimal(0))((z, d) => z + d)
+    if (depositTotal <= 0) {
+      0
+    } else {
+      // entropy = - sum_for_all_i(P[i] * log(P[i]))
+      -mixingMap.values.foldLeft(BigDecimal(0))((z, d) => {
+        val prob_d = d / depositTotal
+        z + prob_d * log2(prob_d.doubleValue) // casting to double here is fine. prob_d -> 0 or -> 1 contributes 0 to total entropy
+      }).doubleValue
+    }
   }
 
   // We should only disburse when entropy(houseMap) > entropyThreshold
@@ -95,18 +100,24 @@ object MixerRegistry {
   // 3 deposits, weighting = [0.8, 0.1, 0.1], entropy = 0.92
   val entropyThreshold = 1.0 // In the real world it should be much higher
 
+  // we delay disbursement randomly so our disbursement is not deterministic.
+  val maxDelayCount = 3 // we can delay a disbursement 3 times max
+  val probDelay = 0.5 // probability of delay
+
   // TODO: abstract mixingMap to become a MixingRepository trait,
   //  and implement a InMemoryMixingRepository and a DBMixingRepository
-  private def registry(preMix: Map[String, Mixing], houseMap: Map[String, Mixing])(implicit system: ActorSystem[Nothing], executionContext: ExecutionContext): Behavior[Command] = {
+  private def registry(preMix: Map[String, Mixing], houseMap: Map[String, BigDecimal], disbursements: Seq[Disbursement])(implicit system: ActorSystem[Nothing], executionContext: ExecutionContext): Behavior[Command] = {
     val houseAddress = system.settings.config.getString("pokebowl.jobcoin.houseAddress")
     implicit val timeout: Timeout = Timeout.create(system.settings.config.getDuration("pokebowl.server.timeout"))
     Behaviors.receiveMessage {
       case CreateMixing(mixingRequest, replyTo) =>
         if (validateMixingRequest(mixingRequest)) {
           val depositAddress = randomUUID()
-          val mixing = Mixing(depositAddress, mixingRequest.depositAmount, mixingRequest.disbursements)
+          val mixing = Mixing(depositAddress,
+            mixingRequest.depositAmount,
+            mixingRequest.disbursements.map{d => Disbursement(depositAddress, d.toAddress, d.amount, 0)})
           replyTo ! CreateMixingResponse(Some(DepositAddress(depositAddress)), Created.intValue)
-          registry(preMix + (mixing.depositAddress -> mixing), houseMap)
+          registry(preMix + (mixing.depositAddress -> mixing), houseMap, disbursements)
         } else {
           replyTo ! CreateMixingResponse(None, BadRequest.intValue)
           Behaviors.same
@@ -131,21 +142,40 @@ object MixerRegistry {
             actorRef.get ! FlushDepositToHouseError()
         }
         Behaviors.same
-      case MixedAtHouseAddress(mixing) => {
-        try {
-          registry(preMix.-(mixing.depositAddress), houseMap + mixing)
-        } finally {
-          actorRef.get ! Disburse(mixing)
-        }
-      }
-      case Disburse(mixing) =>
-        mixing.disbursements.foreach(disbursement => {
-          transact(houseAddress, disbursement.toAddress, disbursement.amount)
-        })
-        registry(preMix, houseMap.-(mixing.depositAddress))
+      case MixedAtHouseAddress(mixing) =>
+        registry(preMix.-(mixing.depositAddress),
+          houseMap + (mixing.depositAddress -> BigDecimal(mixing.depositAmount)),
+          disbursements ++ mixing.disbursements)
+      case Disburse() =>
+        batchDisburse(houseAddress, preMix, houseMap, disbursements)
       case _ =>
         Behaviors.same
       // TODO: handle the error cases by retry or at least log them
     }
+  }
+
+  def batchDisburse(houseAddress: String, preMix: Map[String, Mixing], houseMap: Map[String, BigDecimal], disbursements: Seq[Disbursement])(implicit system: ActorSystem[Nothing], executionContext: ExecutionContext): Behavior[Command] = {
+    var newHouseMap = houseMap
+    var disbursedFrom = Set[String]()
+    val newDisbursements: Seq[Disbursement] = disbursements.flatMap(d => {
+      if (entropy(newHouseMap) > entropyThreshold && !disbursedFrom.contains(d.depositAddress)) {
+        if (scala.util.Random.nextFloat() < probDelay && d.delayCount < maxDelayCount) {
+          Some(Disbursement(d.depositAddress, d.toAddress, d.amount, d.delayCount + 1))
+        } else {
+          transact(houseAddress, d.toAddress, d.amount)
+          val newAmount:BigDecimal =  newHouseMap.getOrElse(d.depositAddress, BigDecimal(0)) - BigDecimal(d.amount)
+          disbursedFrom += d.depositAddress
+          if (newAmount > 0) {
+            newHouseMap += (d.depositAddress -> newAmount)
+          } else {
+            newHouseMap -= d.depositAddress
+          }
+          None
+        }
+      } else {
+        Some(d)
+      }
+    })
+    registry(preMix, newHouseMap, newDisbursements)
   }
 }
