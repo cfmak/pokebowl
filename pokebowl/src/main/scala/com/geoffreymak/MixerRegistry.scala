@@ -2,7 +2,6 @@ package com.geoffreymak
 
 import akka.actor.typed.{ActorRef, ActorSystem, Behavior}
 import akka.actor.typed.scaladsl.Behaviors
-import akka.http.scaladsl.model.StatusCode
 import akka.http.scaladsl.model.StatusCodes.{Accepted, BadRequest, Created}
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -31,6 +30,8 @@ object MixerRegistry {
 
   final case class FlushDepositToHouseError() extends Command
 
+  final case class MixedAtHouseAddress(mixing: Mixing) extends Command
+
   final case class Disburse(mixing: Mixing) extends Command
 
   final case class DepositValueError() extends Command
@@ -40,7 +41,7 @@ object MixerRegistry {
 
   final case class ActionPerformed(description: String, statusCode: Int)
 
-  def apply()(implicit system: ActorSystem[Nothing], executionContext: ExecutionContext): Behavior[Command] = registry(Map.empty)
+  def apply()(implicit system: ActorSystem[Nothing], executionContext: ExecutionContext): Behavior[Command] = registry(Map.empty, Map.empty)
 
   def randomUUID():String = java.util.UUID.randomUUID.toString
 
@@ -50,8 +51,8 @@ object MixerRegistry {
     deposit > 0 && deposit == disbursementTotal
   }
 
-  def validateAmountInDepositAddress(depositAddress: String, mixingMap: Map[String, Mixing])(implicit system: ActorSystem[Nothing], executionContext: ExecutionContext): Future[Boolean] = {
-    val mixing = mixingMap.get(depositAddress)
+  def validateAmountInDepositAddress(depositAddress: String, preMix: Map[String, Mixing])(implicit system: ActorSystem[Nothing], executionContext: ExecutionContext): Future[Boolean] = {
+    val mixing = preMix.get(depositAddress)
     mixing match {
       case Some(m) =>
         val jobcoinClient: JobcoinClient = new JobcoinClient
@@ -70,9 +71,33 @@ object MixerRegistry {
     jobcoinClient.postTransactions(fromAddress, toAddress, amount)
   }
 
+  private val logOf2 = scala.math.log(2)
+  private def log2(x: Double): Double = scala.math.log(x)/logOf2
+
+  def entropy(mixingMap: Map[String, Mixing]) : Double = {
+    val depositTotal = mixingMap.values.foldLeft(BigDecimal(0))((z, d) => z + BigDecimal(d.depositAmount))
+    // entropy = - sum_for_all_i(P[i] * log(P[i]))
+    - mixingMap.values.foldLeft(BigDecimal(0))((z, d) => {
+      val prob_d = BigDecimal(d.depositAmount) / depositTotal
+      z + prob_d * log2(prob_d.doubleValue) // casting to double here is fine. prob_d -> 0 or -> 1 contributes 0 to total entropy
+    })
+  }
+
+  // We should only disburse when entropy(houseMap) > entropyThreshold
+  // entropy(houseMap) measures the how well mixed the house address is.
+  // Low entropy makes it easy for attacker to figure out which disbursement belongs to which deposit.
+  // For example, if the house address consists of:
+  // 1 deposit, entropy = 0 (all amount in house belongs to the same deposit)
+  // 2 deposits, equal weighting [0.5, 0.5], entropy = 1
+  // 3 deposits, equal weighting [0.33, 0.33, 0.33], entropy = 1.58
+  // Having a big dominant deposit decreases entropy:
+  // 2 deposits, weighting = [0.1, 0.9] (or [0.9, 0.1], order does not matter), entropy = 0.47
+  // 3 deposits, weighting = [0.8, 0.1, 0.1], entropy = 0.92
+  val entropyThreshold = 1.0 // In the real world it should be much higher
+
   // TODO: abstract mixingMap to become a MixingRepository trait,
   //  and implement a InMemoryMixingRepository and a DBMixingRepository
-  private def registry(mixingMap: Map[String, Mixing])(implicit system: ActorSystem[Nothing], executionContext: ExecutionContext): Behavior[Command] = {
+  private def registry(preMix: Map[String, Mixing], houseMap: Map[String, Mixing])(implicit system: ActorSystem[Nothing], executionContext: ExecutionContext): Behavior[Command] = {
     val houseAddress = system.settings.config.getString("pokebowl.jobcoin.houseAddress")
     implicit val timeout: Timeout = Timeout.create(system.settings.config.getDuration("pokebowl.server.timeout"))
     Behaviors.receiveMessage {
@@ -81,17 +106,17 @@ object MixerRegistry {
           val depositAddress = randomUUID()
           val mixing = Mixing(depositAddress, mixingRequest.depositAmount, mixingRequest.disbursements)
           replyTo ! CreateMixingResponse(Some(DepositAddress(depositAddress)), Created.intValue)
-          registry(mixingMap + (mixing.depositAddress -> mixing))
+          registry(preMix + (mixing.depositAddress -> mixing), houseMap)
         } else {
           replyTo ! CreateMixingResponse(None, BadRequest.intValue)
           Behaviors.same
         }
       case ConfirmDeposit(depositAddress, replyTo) =>
-        val validation = validateAmountInDepositAddress(depositAddress, mixingMap)
+        val validation = validateAmountInDepositAddress(depositAddress, preMix)
         validation.onComplete {
           case Success(true) =>
             replyTo ! ActionPerformed("Deposit address verified. Start mixing...", Accepted.intValue)
-            actorRef.get ! FlushDepositToHouse(mixingMap(depositAddress))
+            actorRef.get ! FlushDepositToHouse(preMix(depositAddress))
           case _ =>
             replyTo ! ActionPerformed("Failed to verify the deposit address", BadRequest.intValue)
             actorRef.get ! DepositValueError()
@@ -101,16 +126,23 @@ object MixerRegistry {
         val transactionStatus = transact(mixing.depositAddress, houseAddress, mixing.depositAmount)
         transactionStatus.onComplete {
           case Success(_) =>
-            actorRef.get ! Disburse(mixing)
+            actorRef.get ! MixedAtHouseAddress(mixing)
           case _ =>
             actorRef.get ! FlushDepositToHouseError()
         }
         Behaviors.same
+      case MixedAtHouseAddress(mixing) => {
+        try {
+          registry(preMix.-(mixing.depositAddress), houseMap + mixing)
+        } finally {
+          actorRef.get ! Disburse(mixing)
+        }
+      }
       case Disburse(mixing) =>
         mixing.disbursements.foreach(disbursement => {
           transact(houseAddress, disbursement.toAddress, disbursement.amount)
         })
-        registry(mixingMap.-(mixing.depositAddress))
+        registry(preMix, houseMap.-(mixing.depositAddress))
       case _ =>
         Behaviors.same
       // TODO: handle the error cases by retry or at least log them
