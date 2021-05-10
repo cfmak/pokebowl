@@ -127,10 +127,12 @@ A Postman collection of the Mixer API and the Jobcoin API are attached in the pr
     Using the [Jobcoin web UI](https://jobcoin.gemini.com/lent-doornail),
     
     * You should see a transaction of 0.3 from "6341617d-accc-4f7a-8d88-f34aecc72711" to "house"
-    
-    * You should see a transaction of 0.1 from "house" to "Alice", and 0.2 from "house" to "Bob".   
-    
-    * You should also see that the deposit address should show 0 amount, 
+
+    * The disbursement only happens when the entropy of the house address is above 1. 
+      You need to keep creating new mixing requests (repeat steps 1-3 but change the disbursements[].toAddress to other addresses)
+      to increase the house entropy to above 1. The batch disbursement process runs every 20 seconds.
+
+    * Eventually, you should see a transaction of 0.1 from "house" to "Alice", and 0.2 from "house" to "Bob".
     
     * The "Alice" and "Bob" addresses should see increments of 0.1 and 0.2 respectively.
 
@@ -140,20 +142,24 @@ I have been given the project for a week, and I do not want to delay submitting 
 
 There are several drawbacks which should be improved before going "live":
 
-1.  The mixingMap (key=deposit address, value=mixing info) is held in memory.
-    If the server goes down, the mixingMap is lost, and we lose track of the unprocessed money.
+1.  The houseMap and disbursements sequence is held in memory.
+    If the server goes down, all disbursement information is lost, and we lose track of the unprocessed money.
     We should use a database like postgres to hold the mixingMap so that we can preserve the mixing info.
 
-2.  A delay should be introduced to the disbursement so that it becomes very difficult to
-    attack the mixing by matching the disbursement time with the deposit time.
-
-3.  Better error case handling is needed for the actor state machine. Perhaps adding re-try and confirmation
+2.  Better error case handling is needed for the actor state machine. Perhaps adding re-try and confirmation
     by looking up the Jobcoin transaction has happened.
 
-4.  In a real world system, multiple containers would run the server application. We would need a way to 
+3.  In a real world system, multiple containers would run the server application. We would need a way to 
     process the mixingMap element by element, exactly one time. Here are some proposals: 
     1.  We can have a lock table in the database. The container that is processing a row of mixingMap should acquire a lock first. 
         The lock would be released after the disbursement. As a result, only one container (or thread) can lock on and process a mixing row at a time.
     2.  We can use kafka to manage the disbursement. The REST server can be a producer of the disbursement signal, and have other containers 
         registered as consumer of the Disburse signal. Only the disbursement consumer will perform the transaction to disburse.
         Kafka should support [exactly-once](https://www.baeldung.com/kafka-exactly-once) semantics very well.
+
+4.  We measure the information entropy of the house address (house entropy) to decide how well mixed the house address is. 
+    When house entropy is high, it becomes very difficult to attribute which disbursement originates from which deposit.
+    When the entropy of the house address is lower than a threshold, we will stop disbursing until more deposits enter the house pool which should increase the entropy. 
+    However, it is susceptible to an "attack" when someone deposits a dominating amount to the house pool that actually decreases the house entropy.
+    If the deposit is dominant enough to decrease the house entropy below the disbursement threshold, it could block our application from disbursing for a very long time (or forever).
+    As a future improvement, we could calculate the entropy gain/loss for each deposit to decide whether we allow such deposit be made to our system.

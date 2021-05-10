@@ -178,6 +178,7 @@ object MixerRegistry {
           None
         }
       } else {
+        system.log.info(s"entropy = ${ent} < entropyThreshold = ${entropyThreshold}")
         Some(d)
       }
     })
