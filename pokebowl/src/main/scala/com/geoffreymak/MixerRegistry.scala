@@ -7,6 +7,7 @@ import akka.http.scaladsl.model.StatusCodes.{Accepted, BadRequest, Created}
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success}
 import akka.util.Timeout
+import akka.event.Logging
 
 final case class MixingRequest(depositAmount: String, disbursements: Seq[DisbursementRequest])
 final case class DisbursementRequest(toAddress: String, amount: String)
@@ -75,7 +76,7 @@ object MixerRegistry {
   private val logOf2 = scala.math.log(2)
   private def log2(x: Double): Double = scala.math.log(x)/logOf2
 
-  def entropy(mixingMap: Map[String, BigDecimal]) : Double = {
+  def entropy(mixingMap: Map[String, BigDecimal]): Double = {
     val depositTotal = mixingMap.values.foldLeft(BigDecimal(0))((z, d) => z + d)
     if (depositTotal <= 0) {
       0
@@ -158,10 +159,14 @@ object MixerRegistry {
     var newHouseMap = houseMap
     var disbursedFrom = Set[String]()
     val newDisbursements: Seq[Disbursement] = disbursements.flatMap(d => {
-      if (entropy(newHouseMap) > entropyThreshold && !disbursedFrom.contains(d.depositAddress)) {
+      val ent = entropy(newHouseMap)
+      if (ent > entropyThreshold && !disbursedFrom.contains(d.depositAddress)) {
+        system.log.info(s"entropy = ${ent}")
         if (scala.util.Random.nextFloat() < probDelay && d.delayCount < maxDelayCount) {
+          system.log.info(s"delay disburse = ${d.depositAddress}, ${d.toAddress}, ${d.amount}")
           Some(Disbursement(d.depositAddress, d.toAddress, d.amount, d.delayCount + 1))
         } else {
+          system.log.info(s"disburse = ${d.depositAddress}, ${d.toAddress}, ${d.amount}")
           transact(houseAddress, d.toAddress, d.amount)
           val newAmount:BigDecimal =  newHouseMap.getOrElse(d.depositAddress, BigDecimal(0)) - BigDecimal(d.amount)
           disbursedFrom += d.depositAddress

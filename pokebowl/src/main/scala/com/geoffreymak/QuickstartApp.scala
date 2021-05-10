@@ -42,7 +42,7 @@ object QuickstartApp {
       val mixerRoutes = new MixerRoutes(mixerRegistryActor)(context.system)
       startHttpServer(mixerRoutes.routes)(context.system)
 
-      context.system.scheduler.scheduleAtFixedRate(5.seconds, 5.seconds) {
+      context.system.scheduler.scheduleAtFixedRate(5.seconds, 20.seconds) {
         () => mixerRegistryActor ! Disburse()
       }(context.executionContext)
 
